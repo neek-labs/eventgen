@@ -1,0 +1,51 @@
+{
+  "destination": {
+    "scheme": "http",
+    "hostname": "127.0.0.1",
+    "port": 8080
+  },
+  "run_id_header": "X-EventGen-Run-ID",
+  "profiles": [
+    {
+      "name": "synthetic-indicator",
+      "method": "GET",
+      "path": "/telemetry-check",
+      "query": {
+        "marker": "eventgen-harmless-web-indicator"
+      },
+      "headers": {
+        "User-Agent": "EventGen-Web-Indicators/1.0 synthetic-test",
+        "X-EventGen-Test": "harmless-header-marker"
+      }
+    },
+    {
+      "name": "harmless-json-post",
+      "method": "POST",
+      "path": "/telemetry-check",
+      "query": {
+        "kind": "body-marker"
+      },
+      "headers": {
+        "User-Agent": "EventGen-Web-Indicators/1.0 synthetic-test",
+        "X-EventGen-Test": "harmless-post-marker"
+      },
+      "body": {
+        "type": "json",
+        "value": {
+          "eventgen_marker": "harmless-body-marker"
+        }
+      }
+    },
+    {
+      "name": "benign-comparison",
+      "method": "GET",
+      "path": "/",
+      "query": {
+        "source": "eventgen-comparison"
+      },
+      "headers": {
+        "User-Agent": "EventGen-Web-Indicators/1.0 comparison"
+      }
+    }
+  ]
+}

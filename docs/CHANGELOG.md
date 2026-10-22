@@ -2,6 +2,19 @@
 
 This file records material EventGen changes and their validation boundaries.
 
+## 2026-10-21 — Web Indicators CLI
+
+- Added a standard-library JSON-configured Web Indicators runner with preview,
+  once-through, and duration-bounded loop modes.
+- Enforced destination and request validation, sequential shared rate limits,
+  monotonic deadlines, a 900-attempt cap, verified HTTPS, disabled environment
+  proxies, no redirects or retries, bounded timeouts, and no response-body
+  capture in the execution layer.
+- Added UTC/run-ID evidence with partial reports and stop policies for operator
+  interruption, HTTP 429/503, and three consecutive transport failures.
+- Added a harmless loopback example and mocked HTTP/clock tests. No public or
+  organizational destination is contacted by the tests.
+
 ## 2026-10-04 — Version 0.2.2 — Testing MVP accepted
 
 EventGen is considered sufficient for the current on-demand SOC testing use

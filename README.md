@@ -52,6 +52,71 @@ The CLI is intended for local, authorized testing. It accepts operator-entered
 URLs and does not implement the deployment-managed hostname allowlist or
 SSRF controls the web service has. Do not expose it as a remotely accessible
 request proxy.
+
+## Web Indicators CLI
+
+`cli.web_indicators` sends small, ordinary HTTP requests from a validated JSON
+plan for defensive telemetry and hunt-query checks. It is deliberately separate
+from the interactive CLI and the deployed Flask application. It can establish
+that an HTTP response was received; it cannot establish that telemetry was
+collected or that a detection matched.
+
+The loopback-only example at
+[`examples/web_indicators.localhost.json`](examples/web_indicators.localhost.json)
+contains a distinctive synthetic User-Agent, a custom test header, harmless
+path/query and JSON-body markers, and a benign comparison profile. Start a
+server you control on `127.0.0.1:8080`, then use these commands from the
+repository root:
+
+```powershell
+# Show the exact validated request plan; no network activity occurs.
+python -m cli.web_indicators examples/web_indicators.localhost.json --preview
+
+# Send each profile once, sequentially.
+python -m cli.web_indicators examples/web_indicators.localhost.json --once --report web-indicators-once.json
+
+# Cycle through profiles for 60 seconds at the default five-second interval.
+python -m cli.web_indicators examples/web_indicators.localhost.json --loop --duration 60 --report web-indicators-loop.json
+```
+
+For a quick receiver, `python -m http.server 8080 --bind 127.0.0.1` is enough
+to observe the requests, although its built-in handler returns `501` for the
+POST profile. That status still represents a received HTTP response. Use an
+application that accepts POST if a successful status is important to the test.
+
+The JSON configuration has one explicit `destination` (`scheme`, `hostname`,
+and optional `port`) and an ordered `profiles` array. A profile supports `GET`
+or `POST`, an origin-relative `path`, a structured `query` object, custom
+`headers`, and an optional POST `body` with `type` set to `text` or `json`.
+`run_id_header` is optional; when set, the generated run ID is sent in that
+header. Leaving it `null` preserves exactly the profile's configured header
+set. Preview masks common credential-bearing header and query names. Do not put
+secrets in marker bodies or configuration files.
+
+Configuration is fully validated before requests begin. Absolute and
+destination-changing paths, control characters, managed transport headers,
+oversized URLs or headers, and bodies over 4 KiB are rejected. HTTPS always
+uses normal certificate verification. The client ignores environment proxy
+settings, does not follow redirects, does not retry, does not read response
+bodies, and closes every response.
+
+Runs are sequential with only one request in flight. The default interval is
+five seconds, the enforced minimum between request starts is one second, the
+default loop duration is 60 seconds, and the maximum duration and hard attempt
+cap are 900 seconds and 900 attempts. Late work never causes catch-up bursts.
+HTTP `429` or `503` and three consecutive transport failures stop a run.
+Ctrl+C preserves a partial JSON report. The default per-request timeout is ten
+seconds (configurable up to 30), so an in-flight request can delay shutdown by
+approximately that timeout plus DNS resolution and small local processing
+overhead. The CLI prints the validated plan to standard error before an
+executing run and writes the machine-readable result to standard output (and
+to `--report` when provided).
+
+These limits reduce the risk of accidental pressure; they cannot prevent every
+possible service impact. Use only destinations you are authorized to test.
+Requests validate only telemetry visible along their actual network path. With
+HTTPS, request-header visibility requires an observation point where TLS is
+terminated or otherwise legitimately inspected.
 ## Run the CLI
 
 Python 3.10 or later is required. No third-party packages are needed.
