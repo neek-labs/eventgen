@@ -16,6 +16,10 @@
         </dl>
       </div>
       <div class="card">
+        <h2>Request headers</h2>
+        <table><tbody>{% for header in request_headers %}<tr><th>{{ header.name }}</th><td><code>{{ header.value }}</code></td></tr>{% endfor %}</tbody></table>
+      </div>
+      <div class="card">
         <h2>Response headers</h2>
         <table><tbody>{% for header in response_headers %}<tr><th>{{ header.name }}</th><td><code>{{ header.value }}</code></td></tr>{% endfor %}</tbody></table>
       </div>
@@ -37,6 +41,10 @@
               <input type="hidden" name="user_agent_mode" value="{{ user_agent_source }}">
               <input type="hidden" name="user_agent_index" value="{{ user_agent_index if user_agent_index is not none else 0 }}">
               {% if user_agent_source == "custom" %}<input type="hidden" name="custom_user_agent" value="{{ custom_user_agent }}">{% endif %}
+              {% for name, value in custom_headers %}
+                <input type="hidden" name="custom_header_name" value="{{ name }}">
+                <input type="hidden" name="custom_header_value" value="{{ value }}">
+              {% endfor %}
               {% if snapshot.tls_verified %}<input type="hidden" name="verify_tls" value="on">{% endif %}
               <button type="submit">Proceed</button>
             </form>

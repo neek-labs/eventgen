@@ -16,8 +16,9 @@ connections reach the target and are logged.
 
 ## MVP validation status
 
-Version `0.2.3` extends the accepted on-demand SOC testing MVP with controlled
-custom User-Agent values. The underlying `0.2.2` application was deployed to
+Version `0.3.0` extends the accepted on-demand SOC testing MVP with controlled
+per-request custom headers and custom User-Agent values. The underlying `0.2.2`
+application was deployed to
 Cloud Run by running the `cloud_install` scripts from a remote Linux server,
 and a captured external session confirmed:
 
@@ -133,12 +134,21 @@ The Flask application preserves the CLI's core workflow in a browser:
 
 - operator-entered URLs within a deployment-managed hostname scope;
 - selectable preset or custom User-Agent values and optional unverified TLS;
+- up to 20 validated custom headers on each one-off GET request, with protected
+  EventGen, authentication, cookie and connection-level headers;
 - response status, sanitized headers, and bounded body preview;
 - display of the server-presented TLS certificate chain, including subjects,
   issuers, validity, SANs, and SHA-256 fingerprints;
 - explicit Proceed or Drop decisions for redirects;
 - public egress-IP lookup; and
 - an authenticated, downloadable JSON session log.
+
+Custom headers are available on the one-off web request form. They are
+validated as printable HTTP header data, preserved when the operator explicitly
+approves a redirect, displayed with the response evidence and included in the
+downloadable session log. Likely credential-bearing header values are redacted
+from displayed and downloaded evidence. The standalone CLI does not yet expose
+custom request headers.
 
 The **WAF Tester** link opens a deliberately bounded Intruder-style workflow.
 Enter a complete GET URL containing `[replaceme]` and optionally

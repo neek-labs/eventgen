@@ -29,6 +29,22 @@
           <input type="text" name="custom_user_agent" maxlength="1024" autocomplete="off" spellcheck="false" placeholder="Enter the exact header value">
         </label>
         <p class="muted">Custom values are sent literally. Shell-like punctuation is allowed; control characters and header line breaks are rejected.</p>
+        <fieldset>
+          <legend>Optional custom request headers</legend>
+          <div class="header-rows" id="custom-header-rows">
+            <div class="header-row">
+              <label>Header name
+                <input type="text" name="custom_header_name" maxlength="128" autocomplete="off" spellcheck="false" placeholder="X-EventGen-Marker">
+              </label>
+              <label>Header value
+                <input type="text" name="custom_header_value" maxlength="4096" autocomplete="off" spellcheck="false" placeholder="java4shell-lab">
+              </label>
+              <button class="secondary remove-header" type="button" aria-label="Remove custom header">Remove</button>
+            </div>
+          </div>
+          <button class="secondary" id="add-custom-header" type="button">Add another header</button>
+          <p class="muted">Up to 20 headers may be added to this GET. EventGen continues to control User-Agent, Host, Accept, its validation ID, authentication, cookies, and connection-level headers.</p>
+        </fieldset>
         <label class="check">
           <input type="checkbox" name="verify_tls" checked>
           Verify the server TLS certificate
@@ -39,6 +55,17 @@
           <button class="secondary" type="submit" formaction="{{ url_for('certificate_chain') }}">Display certificate chain</button>
         </div>
       </form>
+      <template id="custom-header-row-template">
+        <div class="header-row">
+          <label>Header name
+            <input type="text" name="custom_header_name" maxlength="128" autocomplete="off" spellcheck="false" placeholder="X-EventGen-Marker">
+          </label>
+          <label>Header value
+            <input type="text" name="custom_header_value" maxlength="4096" autocomplete="off" spellcheck="false" placeholder="java4shell-lab">
+          </label>
+          <button class="secondary remove-header" type="button" aria-label="Remove custom header">Remove</button>
+        </div>
+      </template>
     </section>
     <aside class="stack">
       <section class="card">
@@ -64,3 +91,4 @@
     </aside>
   </div>
 {% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='request_headers.js') }}" defer></script>{% endblock %}

@@ -12,6 +12,7 @@ import socket
 import tempfile
 import threading
 from datetime import datetime, timezone
+from itertools import zip_longest
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -33,17 +34,19 @@ from app.http_client import (
     TLS_WARNING,
     USER_AGENT_OPTIONS,
     ResponseSnapshot,
+    build_request_headers,
     get_public_egress_ips,
     normalize_url,
     redirect_target,
     resolve_user_agent,
     send_once,
+    validate_custom_headers,
 )
 from app.certificate_inspector import inspect_certificate_chain
 from app.waf_tester import WafRunManager, create_waf_blueprint
 
 
-APP_VERSION = "0.2.3"
+APP_VERSION = "0.3.0"
 USERNAME_ENV = "EVENTGEN_USERNAME"
 PASSWORD_ENV = "EVENTGEN_PASSWORD"
 SECRET_KEY_ENV = "EVENTGEN_SECRET_KEY"
@@ -70,6 +73,17 @@ SENSITIVE_RESPONSE_HEADERS = {
     "set-cookie",
     "www-authenticate",
 }
+SENSITIVE_REQUEST_HEADER_FRAGMENTS = (
+    "api-key",
+    "apikey",
+    "auth",
+    "cookie",
+    "credential",
+    "password",
+    "secret",
+    "session",
+    "token",
+)
 
 
 def utc_now() -> str:
@@ -173,6 +187,36 @@ def sanitize_response_headers(
         }
         for name, value in headers
     ]
+
+
+def parse_custom_header_fields(
+    names: list[str], values: list[str]
+) -> tuple[tuple[str, str], ...]:
+    """Turn repeated form fields into a validated custom-header collection."""
+
+    entered_headers = [
+        (name, value)
+        for name, value in zip_longest(names, values, fillvalue="")
+        if name or value
+    ]
+    return validate_custom_headers(entered_headers)
+
+
+def sanitize_request_headers(
+    headers: tuple[tuple[str, str], ...],
+) -> list[dict[str, str]]:
+    """Redact likely credentials while retaining useful outbound evidence."""
+
+    sanitized: list[dict[str, str]] = []
+    for name, value in headers:
+        normalized_name = name.casefold()
+        if any(
+            fragment in normalized_name
+            for fragment in SENSITIVE_REQUEST_HEADER_FRAGMENTS
+        ):
+            value = "[REDACTED]"
+        sanitized.append({"name": name, "value": value})
+    return sanitized
 
 
 def body_preview(snapshot: ResponseSnapshot) -> str:
@@ -336,6 +380,10 @@ def create_app(test_config: dict[str, object] | None = None) -> Flask:
         verify_tls = request.form.get("verify_tls") == "on"
         user_agent_mode = request.form.get("user_agent_mode", "preset")
         try:
+            custom_headers = parse_custom_header_fields(
+                request.form.getlist("custom_header_name"),
+                request.form.getlist("custom_header_value"),
+            )
             user_agent_index = int(request.form.get("user_agent_index", "0"))
             user_agent = resolve_user_agent(
                 mode=user_agent_mode,
@@ -347,6 +395,7 @@ def create_app(test_config: dict[str, object] | None = None) -> Flask:
                 validated_url,
                 verify_tls=verify_tls,
                 user_agent=user_agent.value,
+                custom_headers=custom_headers,
             )
         except (ConnectionError, ValueError) as exc:
             log_store.append(
@@ -367,6 +416,11 @@ def create_app(test_config: dict[str, object] | None = None) -> Flask:
             return redirect(url_for("index"))
 
         location = snapshot.header("Location")
+        outbound_headers = snapshot.request_headers or build_request_headers(
+            snapshot.user_agent,
+            snapshot.validation_id,
+            custom_headers,
+        )
         resolved_redirect = None
         if snapshot.status in {300, 301, 302, 303, 305, 307, 308} and location:
             try:
@@ -384,6 +438,7 @@ def create_app(test_config: dict[str, object] | None = None) -> Flask:
                     "validation_id": snapshot.validation_id,
                     "user_agent": snapshot.user_agent,
                     "user_agent_source": user_agent.source,
+                    "headers": sanitize_request_headers(outbound_headers),
                     "tls_verified": snapshot.tls_verified,
                 },
                 "response": {
@@ -404,6 +459,8 @@ def create_app(test_config: dict[str, object] | None = None) -> Flask:
             snapshot=snapshot,
             response_body=body_preview(snapshot),
             response_headers=sanitize_response_headers(snapshot.headers),
+            request_headers=sanitize_request_headers(outbound_headers),
+            custom_headers=custom_headers,
             user_agent_index=user_agent.preset_index,
             user_agent_source=user_agent.source,
             custom_user_agent=(

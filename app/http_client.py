@@ -5,6 +5,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import os
+import re
 import ssl
 import sys
 import uuid
@@ -24,7 +25,30 @@ DEFAULT_TIMEOUT_SECONDS = 15.0
 DEFAULT_MAX_BODY_BYTES = 64 * 1024
 DEFAULT_MAX_REDIRECTS = 10
 MAX_USER_AGENT_LENGTH = 1024
+MAX_CUSTOM_HEADERS = 20
+MAX_HEADER_NAME_LENGTH = 128
+MAX_HEADER_VALUE_LENGTH = 4096
 CORRELATION_HEADER = "X-Validation-ID"
+HEADER_NAME_PATTERN = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+RESERVED_REQUEST_HEADERS = {
+    "accept",
+    "authorization",
+    "connection",
+    "content-length",
+    "cookie",
+    "expect",
+    "host",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "proxy-connection",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+    "user-agent",
+    CORRELATION_HEADER.casefold(),
+}
 PUBLIC_IPV4_ENDPOINT = os.environ.get(
     "EVENTGEN_IPV4_ECHO_URL",
     os.environ.get("EVENTGEN_IP_ECHO_URL", "https://api.ipify.org?format=json"),
@@ -179,6 +203,7 @@ class ResponseSnapshot:
     body: bytes
     body_truncated: bool
     tls_verified: bool
+    request_headers: tuple[tuple[str, str], ...] = ()
 
     def header(self, name: str) -> str | None:
         wanted = name.casefold()
@@ -247,6 +272,82 @@ def build_ssl_context(verify_tls: bool) -> ssl.SSLContext:
     return context
 
 
+def validate_custom_headers(
+    headers: Iterable[tuple[str, str]] | None,
+) -> tuple[tuple[str, str], ...]:
+    """Validate optional operator-supplied request headers for one GET."""
+
+    if headers is None:
+        return ()
+
+    validated: list[tuple[str, str]] = []
+    names_seen: set[str] = set()
+    for name, value in headers:
+        if not isinstance(name, str) or not isinstance(value, str):
+            raise ValueError("Custom header names and values must be text.")
+        if not name:
+            raise ValueError("Each custom header must have a name.")
+        if name != name.strip():
+            raise ValueError(
+                "Custom header names must not contain surrounding whitespace."
+            )
+        if len(name) > MAX_HEADER_NAME_LENGTH:
+            raise ValueError(
+                f"Custom header names must be no more than {MAX_HEADER_NAME_LENGTH} characters."
+            )
+        if HEADER_NAME_PATTERN.fullmatch(name) is None:
+            raise ValueError(
+                "Custom header names may contain HTTP token characters only."
+            )
+
+        normalized_name = name.casefold()
+        if normalized_name in RESERVED_REQUEST_HEADERS:
+            raise ValueError(
+                f"The {name} header is controlled or reserved by EventGen."
+            )
+        if normalized_name in names_seen:
+            raise ValueError(f"The {name} custom header is duplicated.")
+        names_seen.add(normalized_name)
+
+        if len(value) > MAX_HEADER_VALUE_LENGTH:
+            raise ValueError(
+                f"Custom header values must be no more than {MAX_HEADER_VALUE_LENGTH} characters."
+            )
+        if value and value != value.strip():
+            raise ValueError(
+                f"The {name} header value must not contain surrounding whitespace."
+            )
+        if any(
+            ord(character) < 0x20 or ord(character) > 0x7E
+            for character in value
+        ):
+            raise ValueError(
+                f"The {name} header value must contain printable ASCII characters only."
+            )
+        validated.append((name, value))
+        if len(validated) > MAX_CUSTOM_HEADERS:
+            raise ValueError(
+                f"No more than {MAX_CUSTOM_HEADERS} custom headers may be sent per request."
+            )
+    return tuple(validated)
+
+
+def build_request_headers(
+    user_agent: str,
+    validation_id: str,
+    custom_headers: Iterable[tuple[str, str]] | None = None,
+) -> tuple[tuple[str, str], ...]:
+    """Build the exact outbound header set while preserving EventGen controls."""
+
+    headers = [
+        ("User-Agent", validate_user_agent(user_agent)),
+        (CORRELATION_HEADER, validation_id),
+        ("Accept", "*/*"),
+    ]
+    headers.extend(validate_custom_headers(custom_headers))
+    return tuple(headers)
+
+
 def send_once(
     url: str,
     *,
@@ -255,20 +356,18 @@ def send_once(
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
     max_body_bytes: int = DEFAULT_MAX_BODY_BYTES,
     validation_id: str | None = None,
+    custom_headers: Iterable[tuple[str, str]] | None = None,
 ) -> ResponseSnapshot:
     """Send one GET and capture its response without following redirects."""
 
     normalized_url = normalize_url(url)
-    user_agent = validate_user_agent(user_agent)
     validation_id = validation_id or str(uuid.uuid4())
+    request_headers = build_request_headers(user_agent, validation_id, custom_headers)
+    user_agent = request_headers[0][1]
     request = Request(
         normalized_url,
         method="GET",
-        headers={
-            "User-Agent": user_agent,
-            CORRELATION_HEADER: validation_id,
-            "Accept": "*/*",
-        },
+        headers=dict(request_headers),
     )
     opener = build_opener(
         HTTPSHandler(context=build_ssl_context(verify_tls)),
@@ -302,6 +401,7 @@ def send_once(
             body=body,
             body_truncated=truncated,
             tls_verified=verify_tls,
+            request_headers=request_headers,
         )
 
 

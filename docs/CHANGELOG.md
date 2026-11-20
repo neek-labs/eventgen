@@ -2,6 +2,33 @@
 
 This file records material EventGen changes and their validation boundaries.
 
+## 2026-11-19 — Version 0.3.0 — Per-request custom headers
+
+### Added
+
+- Optional custom header name/value rows for one-off GET requests in the web
+  interface, with client-side row controls and a server-enforced 20-header cap.
+- Shared validation for HTTP token names and printable ASCII values, including
+  length limits, case-insensitive duplicate rejection and rejection of header
+  line breaks or ambiguous surrounding whitespace.
+- Protection for EventGen-controlled headers, the existing User-Agent control,
+  authentication and cookies, and connection-level headers.
+- Custom-header persistence across an explicitly approved redirect, outbound
+  header evidence on the response page and redacted request headers in the
+  downloadable session log.
+
+### Validation boundary
+
+- The capability remains one request at a time and GET-only. It is not added to
+  WAF batch runs or the standalone CLI.
+- Custom values are passed to the standard-library HTTP header API and are not
+  evaluated by a shell or template engine.
+- Likely credential-bearing header values are redacted from response evidence
+  and session logs. Operators should still use inert markers rather than real
+  credentials or active exploit callbacks.
+- The complete automated suite passes 50 tests, including a local HTTP fixture
+  proving that a custom marker is transmitted and recorded.
+
 ## 2026-10-22 — Version 0.2.3 — Custom User-Agent validation
 
 ### Added

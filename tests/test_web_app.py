@@ -227,9 +227,88 @@ class WebAppTests(unittest.TestCase):
         report = json.loads(
             self.client.get("/session-log.json", headers=self.auth_headers()).data
         )
-        event = next(item for item in report["events"] if item["event_type"] == "request")
+        event = next(
+            item for item in report["events"] if item["event_type"] == "request"
+        )
         self.assertEqual(event["request"]["user_agent"], custom)
         self.assertEqual(event["request"]["user_agent_source"], "custom")
+
+    @patch("app.web_app.validate_target", return_value="https://example.test/start")
+    @patch("app.web_app.send_once")
+    def test_custom_headers_are_sent_displayed_and_safely_logged(
+        self, mock_send, _mock_validate
+    ) -> None:
+        mock_send.return_value = ResponseSnapshot(
+            request_url="https://example.test/start",
+            validation_id="custom-header-123",
+            user_agent="test-agent",
+            status=200,
+            reason="OK",
+            headers=(("Content-Type", "text/plain"),),
+            body=b"ok",
+            body_truncated=False,
+            tls_verified=True,
+        )
+        csrf = self.csrf_token()
+
+        response = self.client.post(
+            "/request",
+            headers=self.auth_headers(),
+            data={
+                "csrf_token": csrf,
+                "url": "https://example.test/start",
+                "user_agent_index": "0",
+                "custom_header_name": ["X-EventGen-Marker", "X-Api-Key"],
+                "custom_header_value": ["java4shell-lab", "do-not-log-this"],
+                "verify_tls": "on",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            mock_send.call_args.kwargs["custom_headers"],
+            (
+                ("X-EventGen-Marker", "java4shell-lab"),
+                ("X-Api-Key", "do-not-log-this"),
+            ),
+        )
+        self.assertIn(b"X-EventGen-Marker", response.data)
+        self.assertIn(b"java4shell-lab", response.data)
+        self.assertIn(b"[REDACTED]", response.data)
+        self.assertNotIn(b"do-not-log-this", response.data)
+
+        report = json.loads(
+            self.client.get("/session-log.json", headers=self.auth_headers()).data
+        )
+        event = next(item for item in report["events"] if item["event_type"] == "request")
+        logged_headers = {
+            header["name"]: header["value"] for header in event["request"]["headers"]
+        }
+        self.assertEqual(logged_headers["X-EventGen-Marker"], "java4shell-lab")
+        self.assertEqual(logged_headers["X-Api-Key"], "[REDACTED]")
+
+    @patch("app.web_app.validate_target", return_value="https://example.test/start")
+    @patch("app.web_app.send_once")
+    def test_reserved_custom_header_is_rejected_before_send(
+        self, mock_send, _mock_validate
+    ) -> None:
+        csrf = self.csrf_token()
+
+        response = self.client.post(
+            "/request",
+            headers=self.auth_headers(),
+            data={
+                "csrf_token": csrf,
+                "url": "https://example.test/start",
+                "user_agent_index": "0",
+                "custom_header_name": "Host",
+                "custom_header_value": "other.example.test",
+                "verify_tls": "on",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        mock_send.assert_not_called()
 
     @patch("app.web_app.validate_target", return_value="https://example.test/start")
     @patch("app.web_app.send_once")
@@ -259,6 +338,8 @@ class WebAppTests(unittest.TestCase):
                 "user_agent_mode": "custom",
                 "user_agent_index": "0",
                 "custom_user_agent": custom,
+                "custom_header_name": "X-EventGen-Marker",
+                "custom_header_value": "java4shell-lab",
                 "verify_tls": "on",
             },
         )
@@ -267,6 +348,12 @@ class WebAppTests(unittest.TestCase):
         self.assertIn(b'name="user_agent_mode" value="custom"', response.data)
         self.assertIn(b'name="custom_user_agent"', response.data)
         self.assertIn(b"&lt;probe&gt;", response.data)
+        self.assertIn(
+            b'name="custom_header_name" value="X-EventGen-Marker"', response.data
+        )
+        self.assertIn(
+            b'name="custom_header_value" value="java4shell-lab"', response.data
+        )
 
     @patch(
         "app.web_app.get_public_egress_ips",
